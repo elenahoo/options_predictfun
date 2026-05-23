@@ -1,0 +1,15 @@
+venv/
+.venv/
+.env
+.DS_Store
+.vscode/
+.idea/
+.pytest_cache/
+logs/
+
+__pycache__/
+.coverage
+*.db
+data_snapshots/
+flagged/
+smiles_term_structure/

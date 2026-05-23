@@ -1,0 +1,15 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python app.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5
+
+# Attach a Railway Volume mounted at /data for persistent SQLite storage.
+# Create the volume in the Railway dashboard and set DATABASE_URL=/data/scanner.db
+# so alert history and trade positions survive redeploys.
+[[mounts]]
+mountPath = "/data"

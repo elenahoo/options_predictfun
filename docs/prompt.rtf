@@ -1,0 +1,48 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2822
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Roman;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\sa240\partightenfactor0
+
+\f0\fs24 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 can you create a script in @options_polymarket/ folder that finds the corresponding Deribit trades based on the polymarket trade to conduct the arbitrage in the following in sequence:\
+1. copy the code from @options_polymarket/price_option_all_expiries.py up until the output file @options_polymarket/outputs/polymarket_quotes_btc_bitcoin_20260104.csv is created, i'll need the data from this file to extract strike, expiry and price for Polymarket\
+2. for each row in the @options_polymarket/outputs/polymarket_quotes_btc_bitcoin_20260104.csv file, take the lastTradePrice and assume I start the polymarket position by buying 100 units of lasTradePrice i.e. the cost of the trade is 100*lastTradePrice, the payoff is always $100 if the condition describe in the column "slug" of the csv is met on the "expiry_date"\
+3. extract the correct information from "slug" column to understand the trade executed on Polymarket; note that even though there're existing columns that shows strike_price, expirty_date, always use "slug" column as the golden source to extract the information needed to construct the corresponding arbitrage trade on Deribit. For example, slug "will-the-price-of-bitcoin-be-between-92000-94000-on-january-6" with a lastTradePrice = 0.24 indicates a cost of $24 and pays $100 if bitcoin is between 92k and 94k on January 6\
+4. Construct the corresponding hedge on Deribit with the exact option quantities to buy / sell by reading the call options with the same expiry from Deribit API including the strike, bid, ask (refer to @options_polymarket/price_option_all_expiries.py ). I'm expecting outputs similar to the below for one corresponding polymarket trade saved in a csv file for every trade/row inside @options_polymarket/outputs/polymarket_quotes_btc_bitcoin_20260104.csv\
+1. Exact Deribit trades to hedge/arbitrage\
+Trade 1 \'97 SELL digital at 92k (size = 0.1)\
+\'95 Sell 0.1 \'d7 92k call @ 655\
+\'95 Buy 0.1 \'d7 93k call @ 395\
+Cashflow:\
+0.1 \\times 260 = +26\
+\uc0\u11835 \
+Trade 2 \'97 BUY digital at 94k (size = 0.1)\
+\'95 Buy 0.1 \'d7 93k call @ 395\
+\'95 Sell 0.1 \'d7 94k call @ 170\
+Cashflow:\
+-0.1 \\times 225 = -22.5\
+\uc0\u11835 \
+Net Deribit cashflow\
++26 - 22.5 =+3.5\
+\
+2. Combine with Polymarket to get upfront cashflow and payoff at expiry\
+Upfront Cash\
+Leg | Cashflow\
+Polymarket | -24\
+Deribit | +3.5\
+Net | -20.5\
+\
+Payoff at expiry\
+BTC price | Polymarket | Deribit | Total\
+<92k | 0 | 0 | 0\
+92-94k | +100 | -100 | 0\
+>94k | 0| 0| 0\
+\
+Final result\
+- Paid $20.5\
+- Receive $0 in all states\
+- PnL = -$20.5\
+}

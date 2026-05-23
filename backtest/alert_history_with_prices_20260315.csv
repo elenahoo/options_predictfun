@@ -1,0 +1,23 @@
+id,currency,question_type,strike,outcome,spread_pct,expiry,alerted_at,pm_pct_at_alert,model_pct_at_alert,buy_yes,sell_yes,buy_no,sell_no,last_trade,polymarket_url
+23,BTC,between,72000,"$72,000-$74,000",-5.2,2026-03-17,2026-03-15 02:51:22,25.0,30.2,0.27,0.24,0.73,0.76,0.25,https://polymarket.com/event/bitcoin-price-on-march-17
+22,BTC,above,74000,">$74,000",5.42,2026-03-16,2026-03-14 21:19:41,14.0,8.6,0.13,0.12,0.87,0.88,0.14,https://polymarket.com/event/bitcoin-above-on-march-16
+21,BTC,above,72000,">$72,000",7.45,2026-03-16,2026-03-14 21:19:41,47.0,39.6,0.47,0.46,0.53,0.54,0.47,https://polymarket.com/event/bitcoin-above-on-march-16
+20,BTC,above,68000,">$68,000",-5.97,2026-03-16,2026-03-14 21:19:41,96.0,100.0,0.963,0.959,0.037,0.041,0.96,https://polymarket.com/event/bitcoin-above-on-march-16
+19,BTC,between,72000,"$72,000-$74,000",-12.07,2026-03-16,2026-03-13 00:19:01,33.0,45.1,0.34,0.33,0.66,0.67,0.33,https://polymarket.com/event/bitcoin-price-on-march-16
+18,BTC,between,70000,"$70,000-$72,000",-5.48,2026-03-16,2026-03-13 00:19:01,37.0,42.5,0.38,0.37,0.62,0.63,0.37,https://polymarket.com/event/bitcoin-price-on-march-16
+17,BTC,between,68000,"$68,000-$70,000",7.42,2026-03-16,2026-03-13 00:19:01,16.0,8.6,0.16,0.14,0.84,0.86,0.16,https://polymarket.com/event/bitcoin-price-on-march-16
+16,BTC,between,66000,"$66,000-$68,000",7.69,2026-03-16,2026-03-13 00:19:01,2.4,0.0,0.024,0.023,0.976,0.977,0.024,https://polymarket.com/event/bitcoin-price-on-march-16
+15,BTC,between,64000,"$64,000-$66,000",5.0,2026-03-16,2026-03-13 00:19:00,1.4,0.0,0.006,0.004,0.994,0.996,0.014,https://polymarket.com/event/bitcoin-price-on-march-16
+14,BTC,above,80000,">$80,000",14.4,2026-04-01,2026-03-12 23:02:18,26.0,11.6,0.27,0.26,0.73,0.74,0.26,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+13,BTC,above,75000,">$75,000",28.96,2026-04-01,2026-03-12 23:02:18,65.0,36.0,0.66,0.65,0.34,0.35,0.65,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+12,BTC,above,65000,">$65,000",-19.53,2026-04-01,2026-03-12 23:02:18,40.5,60.0,0.402,0.399,0.598,0.601,0.405,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+11,BTC,above,60000,">$60,000",-66.32,2026-04-01,2026-03-12 23:02:18,19.0,85.3,0.19,0.18,0.81,0.82,0.19,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+10,BTC,above,55000,">$55,000",-84.08,2026-04-01,2026-03-12 23:02:18,7.0,91.1,0.07,0.06,0.93,0.94,0.07,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+9,BTC,above,50000,">$50,000",-92.59,2026-04-01,2026-03-12 23:02:17,3.0,95.6,0.031,0.03,0.969,0.97,0.03,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+8,BTC,above,45000,">$45,000",-96.35,2026-04-01,2026-03-12 23:02:17,1.8,98.2,0.018,0.016,0.982,0.984,0.018,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+7,BTC,above,40000,">$40,000",-98.54,2026-04-01,2026-03-12 23:02:17,1.1,99.6,0.012,0.011,0.988,0.989,0.011,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+6,BTC,above,35000,">$35,000",-99.04,2026-04-01,2026-03-12 23:02:17,0.6,99.6,0.006,0.005,0.994,0.995,0.006,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+5,BTC,above,30000,">$30,000",-99.5,2026-04-01,2026-03-12 23:02:17,0.5,100.0,0.005,0.003,0.995,0.997,0.005,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+4,BTC,above,25000,">$25,000",-99.74,2026-04-01,2026-03-12 23:02:17,0.2,99.9,0.003,0.002,0.997,0.998,0.002,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+3,BTC,above,20000,">$20,000",-99.75,2026-04-01,2026-03-12 23:02:17,0.4,100.0,0.004,0.003,0.996,0.997,0.004,https://polymarket.com/event/what-price-will-bitcoin-hit-in-march-2026
+2,BTC,above,56000,">$56,000",-98.82,2026-03-16,2026-03-12 23:00:40,0.1,98.9,0.001,,0.999,,0.001,https://polymarket.com/event/what-price-will-bitcoin-hit-march-9-15
