@@ -481,20 +481,22 @@ class PredictfunClient:
         fill_or_kill: bool,
         post_only: bool,
     ) -> Dict[str, Any]:
-        payload = {
-            "data": {
-                "pricePerShare": signed["price_per_share"],
-                "strategy": strategy,
-                "slippageBps": signed["slippage_bps"],
-                "isFillOrKill": fill_or_kill,
-                "isPostOnly": post_only,
-                "reservedBalancePolicy": "REJECT_MARKET_ORDER",
-                "isMinAmountOut": signed["is_min_amount_out"],
-                "selfTradePrevention": "CANCEL_MAKER",
-                "order": signed["order"],
-            }
+        data: Dict[str, Any] = {
+            "pricePerShare": signed["price_per_share"],
+            "strategy": strategy,
+            "slippageBps": signed["slippage_bps"],
+            "isFillOrKill": fill_or_kill,
+            "isPostOnly": post_only,
+            "isMinAmountOut": signed["is_min_amount_out"],
+            "selfTradePrevention": "CANCEL_MAKER",
+            "order": signed["order"],
         }
-        return self._request("POST", "/v1/orders", json_body=payload) or {}
+        # Predict.fun rejects `reservedBalancePolicy` on LIMIT orders with
+        # `create_order_reserved_balance_policy_invalid`; only attach it to
+        # MARKET orders, where the policy is applicable.
+        if strategy == "MARKET":
+            data["reservedBalancePolicy"] = "REJECT_MARKET_ORDER"
+        return self._request("POST", "/v1/orders", json_body={"data": data}) or {}
 
     def place_buy_market(
         self,
