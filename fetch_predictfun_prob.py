@@ -43,10 +43,6 @@ _PREDICTFUN_GET_BACKOFF = float(os.environ.get("PREDICTFUN_PUBLIC_GET_BACKOFF", 
 _MARKETS_PAGE_SIZE = int(os.environ.get("PREDICTFUN_MARKETS_PAGE_SIZE", "100"))
 _MAX_MARKET_PAGES = int(os.environ.get("PREDICTFUN_MAX_MARKET_PAGES", "10"))
 
-_DAILY_RE = re.compile(r"(^|[\s_-])(daily|1d|24h|24-hour|24 hour)([\s_-]|$)")
-_NON_DAILY_RE = re.compile(
-    r"(^|[\s_-])(5m|15m|30m|5-min|15-min|30-min|minute|minutes|hourly|weekly|monthly)([\s_-]|$)"
-)
 _BTC_RE = re.compile(r"\b(BTC|BITCOIN)\b", re.IGNORECASE)
 _ETH_RE = re.compile(r"\b(ETH|ETHEREUM)\b", re.IGNORECASE)
 
@@ -203,24 +199,23 @@ def _infer_ticker(market: Dict, category: Optional[Dict] = None) -> Optional[str
 
 
 def _is_daily_market_candidate(market: Dict, category: Optional[Dict] = None) -> bool:
-    blob = _text_blob(
-        market.get("title"),
-        market.get("question"),
-        market.get("description"),
-        market.get("categorySlug"),
-        market.get("marketVariant"),
-        market.get("variantData"),
-        category.get("title") if isinstance(category, dict) else None,
-        category.get("description") if isinstance(category, dict) else None,
-        category.get("slug") if isinstance(category, dict) else None,
-        category.get("marketVariant") if isinstance(category, dict) else None,
-        category.get("variantData") if isinstance(category, dict) else None,
-        category.get("tags") if isinstance(category, dict) else None,
-    ).lower()
-    if _NON_DAILY_RE.search(blob):
+    """Accept Predict.fun once-per-day CRYPTO_UP_DOWN markets.
+
+    These events (slug `bitcoin-up-or-down-on-<date>`) expose `variantData.startPrice`
+    as the "price to beat" — equivalent to a digital option struck at that price,
+    with Up/Down outcomes corresponding to spot ending above/below strike at `endsAt`.
+    """
+    variant = str(
+        (category.get("marketVariant") if isinstance(category, dict) else None)
+        or market.get("marketVariant")
+        or ""
+    ).upper()
+    if variant != "CRYPTO_UP_DOWN":
         return False
-    if _DAILY_RE.search(blob):
-        return True
+    tags = (category.get("tags") if isinstance(category, dict) else None) or market.get("tags") or []
+    for tag in tags:
+        if isinstance(tag, dict) and str(tag.get("name") or "").lower() == "daily":
+            return True
     return False
 
 
