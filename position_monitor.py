@@ -84,6 +84,22 @@ def _check_single_position(pos: dict, client) -> None:
     neg_risk = bool(pos.get("neg_risk", 0))
     tick_size = pos.get("tick_size", 0.01)
 
+    # --- Verify the account still holds shares for this token ---
+    try:
+        balance = client.get_token_balance(token_id)
+    except Exception as e:
+        logger.warning(f"Position {pos_id}: unable to verify token balance: {e}")
+        balance = None
+
+    if balance is not None and balance <= 0:
+        logger.info(
+            f"Position {pos_id}: no shares held (balance={balance}), "
+            f"position was closed externally — marking as expired"
+        )
+        trade_db.update_position_expired(pos_id, "Shares sold externally / no longer held")
+        slack_alerts.send_position_expired_alert(pos, "Shares sold externally")
+        return
+
     # --- Case 1: sell order not yet placed (pending or cancelled) ---
     if sell_order_status in ("pending", "cancelled") or not sell_order_id:
         retries = _sell_retry_counts.get(pos_id, 0)
@@ -129,6 +145,20 @@ def _check_single_position(pos: dict, client) -> None:
                 logger.warning(f"Position {pos_id}: place_gtc_sell returned no order ID")
                 _sell_retry_counts[pos_id] = retries + 1
         except Exception as e:
+            err_str = str(e).lower()
+            # If the account no longer holds the shares, mark closed instead of retrying
+            if any(kw in err_str for kw in ("insufficient", "balance", "not enough", "no shares")):
+                logger.info(
+                    f"Position {pos_id}: sell re-place failed with balance error — "
+                    f"marking as expired: {e}"
+                )
+                trade_db.update_position_expired(
+                    pos_id, f"Shares sold externally / insufficient balance: {e}"
+                )
+                slack_alerts.send_position_expired_alert(pos, "Shares sold externally")
+                _sell_retry_counts.pop(pos_id, None)
+                return
+
             _sell_retry_counts[pos_id] = retries + 1
             logger.error(
                 f"Position {pos_id}: failed to re-place sell "

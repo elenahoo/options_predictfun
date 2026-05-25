@@ -591,6 +591,28 @@ class PredictfunClient:
             return payload.get("data")
         return payload
 
+    def get_token_balance(self, token_id: str) -> Optional[float]:
+        """Return how many shares of *token_id* the maker address currently holds.
+
+        Returns None when position data is unavailable (API issue); returns 0.0
+        when the API returns positions but this token has zero balance.
+        """
+        positions = self.get_positions()
+        if not positions:
+            return None
+        for pos in positions:
+            tid = str(pos.get("tokenId") or pos.get("token_id") or "")
+            if tid == str(token_id):
+                return float(pos.get("balance") or pos.get("shares") or 0)
+        return 0.0
+
+    def get_positions(self) -> list:
+        """Return current token positions from ``GET /v1/account``."""
+        account = self._fetch_account()
+        if not account:
+            return []
+        return account.get("positions") or account.get("balances") or []
+
     def _fetch_account(self) -> Dict[str, Any]:
         payload = self._request("GET", "/v1/account") or {}
         if isinstance(payload, dict) and "data" in payload:
