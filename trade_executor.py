@@ -59,6 +59,12 @@ PREDICTFUN_READ_TIMEOUT = float(
 PREDICTFUN_MAX_RETRIES = int(os.environ.get("PREDICTFUN_MAX_RETRIES", "3"))
 PREDICTFUN_RETRY_BACKOFF = float(os.environ.get("PREDICTFUN_RETRY_BACKOFF", "0.8"))
 PREDICTFUN_SLIPPAGE_BPS = int(os.environ.get("PREDICTFUN_SLIPPAGE_BPS", "50"))
+PREDICTFUN_BUY_CONFIRM_TIMEOUT_SECONDS = float(
+    os.environ.get("PREDICTFUN_BUY_CONFIRM_TIMEOUT_SECONDS", "20")
+)
+PREDICTFUN_BUY_CONFIRM_POLL_SECONDS = float(
+    os.environ.get("PREDICTFUN_BUY_CONFIRM_POLL_SECONDS", "2")
+)
 
 TRADE_SIZE = int(os.environ.get("TRADE_SIZE", "10"))
 TRADE_SIZE_BY_CURRENCY = {
@@ -678,16 +684,50 @@ def _extract_order_id(response: Dict[str, Any]) -> Optional[str]:
 
 
 def _is_filled(response: Dict[str, Any]) -> bool:
-    """Return true when a market-order response looks accepted/filled."""
+    """Return true only when an order response explicitly reports a fill."""
     if not isinstance(response, dict):
         return False
     data = response.get("data") if isinstance(response.get("data"), dict) else response
     status = str(data.get("status") or data.get("code") or "").upper()
-    if status in {"FILLED", "MATCHED", "SETTLED", "SUCCESS"}:
-        return True
-    # For create order, success=true with an order hash is the strongest signal
-    # available without a follow-up match-event lookup.
-    return bool(response.get("success") and _extract_order_id(response))
+    return status in {"FILLED", "MATCHED", "SETTLED"}
+
+
+def _wait_for_token_balance_increase(
+    client: PredictfunClient,
+    token_id: str,
+    *,
+    baseline_balance: Optional[float],
+    shares: float,
+    timeout_seconds: float = PREDICTFUN_BUY_CONFIRM_TIMEOUT_SECONDS,
+    poll_seconds: float = PREDICTFUN_BUY_CONFIRM_POLL_SECONDS,
+) -> tuple[bool, Optional[float]]:
+    """Poll account positions until a just-bought token balance is visible."""
+    if timeout_seconds <= 0:
+        timeout_seconds = 0
+    if poll_seconds <= 0:
+        poll_seconds = 1
+
+    required_balance = float(shares)
+    if baseline_balance is not None:
+        required_balance += float(baseline_balance)
+
+    deadline = time.monotonic() + timeout_seconds
+    last_balance: Optional[float] = None
+    while True:
+        try:
+            balance = client.get_token_balance(token_id)
+        except Exception as e:
+            logger.warning("Unable to verify post-buy token balance for %s: %s", token_id, e)
+            balance = None
+
+        if balance is not None:
+            last_balance = float(balance)
+            if last_balance + 1e-9 >= required_balance:
+                return True, last_balance
+
+        if time.monotonic() >= deadline:
+            return False, last_balance
+        time.sleep(min(poll_seconds, max(0.0, deadline - time.monotonic())))
 
 
 def execute_trades_for_alerts(
@@ -806,6 +846,11 @@ def _execute_single_trade(result: Dict) -> None:
             "Collateral OK: balance=$%.2f, need=$%.2f",
             precheck["balance"], precheck["required"],
         )
+        try:
+            pre_buy_token_balance = client.get_token_balance(str(token_id))
+        except Exception as e:
+            logger.warning("Could not read pre-buy token balance for %s: %s", token_id, e)
+            pre_buy_token_balance = None
         buy_response = client.place_buy_market(
             market_id=int(market_id),
             token_id=str(token_id),
@@ -819,10 +864,26 @@ def _execute_single_trade(result: Dict) -> None:
         slack_alerts.send_trade_error_alert(f"BUY {side.upper()} market", str(e), result)
         return
 
-    if not _is_filled(buy_response):
+    response_explicitly_filled = _is_filled(buy_response)
+    balance_confirmed, post_buy_token_balance = _wait_for_token_balance_increase(
+        client,
+        str(token_id),
+        baseline_balance=pre_buy_token_balance,
+        shares=shares,
+    )
+    if not balance_confirmed:
+        buy_order_id = _extract_order_id(buy_response) or "unknown"
+        baseline_msg = "unknown" if pre_buy_token_balance is None else f"{pre_buy_token_balance:.8f}"
+        observed_msg = "unknown" if post_buy_token_balance is None else f"{post_buy_token_balance:.8f}"
         slack_alerts.send_trade_error_alert(
             f"BUY {side.upper()} market",
-            f"Market buy did not confirm filled/accepted. Response: {str(buy_response)[:400]}",
+            "Market buy was not confirmed by account token balance; no position was recorded "
+            "and no Trade Executed alert was sent.\n"
+            f"Order id: {buy_order_id}\n"
+            f"Response explicitly filled: {response_explicitly_filled}\n"
+            f"Pre-buy balance: {baseline_msg}; observed balance: {observed_msg}; "
+            f"expected increase: {shares}\n"
+            f"Response: {str(buy_response)[:400]}",
             result,
         )
         return
