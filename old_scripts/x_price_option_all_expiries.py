@@ -4,6 +4,7 @@ import pandas as pd
 import math
 import json
 import os
+import os
 import re
 import time
 import urllib.error
@@ -114,6 +115,29 @@ def deribit_expiry_dates(option_instruments: List[dict]) -> set:
 def has_deribit_expiry_on_date(option_instruments: List[dict], target_dt: datetime) -> bool:
     """True when Deribit has an option expiry on the Predict.fun event date."""
     return target_dt.astimezone(timezone.utc).date() in deribit_expiry_dates(option_instruments)
+
+
+DERIBIT_EXPIRY_WINDOW_DAYS = int(os.environ.get("DERIBIT_EXPIRY_WINDOW_DAYS", "3"))
+
+
+def has_deribit_expiry_nearby(
+    option_instruments: List[dict],
+    target_dt: datetime,
+    max_days: int = DERIBIT_EXPIRY_WINDOW_DAYS,
+) -> bool:
+    """True when Deribit has an option expiry within *max_days* of *target_dt*.
+
+    Predict.fun daily markets expire every day at 16:00 UTC, but Deribit
+    expiries follow a sparser schedule (e.g. weeklies on Fridays).  Without
+    this relaxed check the scanner would produce 0 comparisons every day
+    that doesn't happen to have a matching Deribit expiry.
+    """
+    dates = deribit_expiry_dates(option_instruments)
+    target_date = target_dt.astimezone(timezone.utc).date()
+    for d in dates:
+        if abs((d - target_date).days) <= max_days:
+            return True
+    return False
 
 def fetch_url_text(url: str, timeout: float = 10.0) -> Optional[str]:
     try:

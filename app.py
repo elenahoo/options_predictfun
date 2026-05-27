@@ -113,7 +113,8 @@ def run_scan(
         from old_scripts.x_price_option_all_expiries import (
             get_rates_auto, deribit_fetch_option_instruments,
             select_expiries_around_target, fit_svi_smiles_for_expiries,
-            ImpliedVolSurface, yearfrac_365, has_deribit_expiry_on_date,
+            ImpliedVolSurface, yearfrac_365, has_deribit_expiry_nearby,
+            DERIBIT_EXPIRY_WINDOW_DAYS,
         )
 
         from datetime import timedelta
@@ -209,9 +210,10 @@ def run_scan(
                     if not opt_insts:
                         logger.warning(f"[{ccy}] No Deribit instruments for {expiry_iso}")
                         continue
-                    if not has_deribit_expiry_on_date(opt_insts, expiry_dt):
+                    if not has_deribit_expiry_nearby(opt_insts, expiry_dt):
                         logger.warning(
-                            f"[{ccy}] No Deribit option expiry on {expiry_dt.date()} "
+                            f"[{ccy}] No Deribit option expiry within "
+                            f"{DERIBIT_EXPIRY_WINDOW_DAYS}d of {expiry_dt.date()} "
                             f"for Predict.fun expiry {expiry_iso}; skipping"
                         )
                         continue
