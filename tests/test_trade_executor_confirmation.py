@@ -54,6 +54,26 @@ class TradeExecutorConfirmationTests(unittest.TestCase):
         self.assertFalse(confirmed)
         self.assertEqual(balance, 0.0)
 
+    def test_token_balance_empty_positions_means_zero_shares(self):
+        client = object.__new__(trade_executor.PredictfunClient)
+        client._fetch_account = lambda: {"positions": []}
+
+        self.assertEqual(client.get_token_balance("token-no"), 0.0)
+
+    def test_token_balance_missing_positions_is_unavailable(self):
+        client = object.__new__(trade_executor.PredictfunClient)
+        client._fetch_account = lambda: {}
+
+        self.assertIsNone(client.get_token_balance("token-no"))
+
+    def test_token_balance_missing_token_in_positions_means_zero_shares(self):
+        client = object.__new__(trade_executor.PredictfunClient)
+        client._fetch_account = lambda: {
+            "positions": [{"tokenId": "other-token", "balance": "4"}]
+        }
+
+        self.assertEqual(client.get_token_balance("token-no"), 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

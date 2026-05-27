@@ -603,9 +603,17 @@ class PredictfunClient:
         Returns None when position data is unavailable (API issue); returns 0.0
         when the API returns positions but this token has zero balance.
         """
-        positions = self.get_positions()
-        if not positions:
+        account = self._fetch_account()
+        if not account:
             return None
+
+        if "positions" in account:
+            positions = account.get("positions") or []
+        elif "balances" in account:
+            positions = account.get("balances") or []
+        else:
+            return None
+
         for pos in positions:
             tid = str(pos.get("tokenId") or pos.get("token_id") or "")
             if tid == str(token_id):

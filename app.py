@@ -51,9 +51,17 @@ TRADE_ENABLED = os.environ.get("TRADE_ENABLED", "false").lower() == "true"
 
 app = Flask(__name__)
 
+HEARTBEAT_INTERVAL_HOURS = float(os.environ.get("HEARTBEAT_INTERVAL_HOURS", "24"))
+
 # Track last run to show in /health
 _last_run: Dict = {"status": "pending", "timestamp": None, "flagged": 0}
 _run_lock = threading.Lock()
+
+# Heartbeat tracking
+_scan_counter: int = 0
+_last_new_alert_time: Optional[datetime] = None
+_last_heartbeat_time: Optional[datetime] = None
+_heartbeat_lock = threading.Lock()
 
 # Scheduler control: when set, scheduler runs; when cleared, scheduler is paused
 _scheduler_run = threading.Event()
@@ -377,6 +385,54 @@ def run_scan(
                          "total": len(all_results), "currencies": currencies,
                          "max_expiry_days": max_expiry_days, "new_alerts_sent": new_alerts_sent_this_run}
 
+        # --- Heartbeat for scheduled scans ---
+        if run_type == "scheduled":
+            global _scan_counter, _last_new_alert_time, _last_heartbeat_time
+            with _heartbeat_lock:
+                _scan_counter += 1
+                if new_alerts_sent_this_run > 0:
+                    _last_new_alert_time = datetime.now(timezone.utc)
+                scan_n = _scan_counter
+                last_alert_dt = _last_new_alert_time
+                last_hb = _last_heartbeat_time
+
+            should_heartbeat = False
+            if HEARTBEAT_INTERVAL_HOURS > 0:
+                if last_hb is None:
+                    should_heartbeat = True
+                else:
+                    elapsed_h = (datetime.now(timezone.utc) - last_hb).total_seconds() / 3600
+                    if elapsed_h >= HEARTBEAT_INTERVAL_HOURS:
+                        should_heartbeat = True
+
+            if should_heartbeat:
+                import alert_db
+                db_count = alert_db.get_alert_count()
+                ago_str = None
+                if last_alert_dt:
+                    delta = datetime.now(timezone.utc) - last_alert_dt
+                    hours = delta.total_seconds() / 3600
+                    if hours < 1:
+                        ago_str = f"{int(delta.total_seconds() / 60)}m ago"
+                    elif hours < 24:
+                        ago_str = f"{int(hours)}h ago"
+                    else:
+                        ago_str = f"{int(hours / 24)}d ago"
+                slack_alerts.send_heartbeat(
+                    scan_count=scan_n,
+                    comparisons=len(all_results),
+                    flagged=flagged_count,
+                    new_alerts=new_alerts_sent_this_run,
+                    db_url_count=db_count if db_count is not None else 0,
+                    last_new_alert_ago=ago_str,
+                    scheduler_running=_scheduler_run.is_set(),
+                    interval_min=SCAN_INTERVAL_MINUTES,
+                    threshold_pct=threshold_pct,
+                    currencies=currencies,
+                )
+                with _heartbeat_lock:
+                    _last_heartbeat_time = datetime.now(timezone.utc)
+
         # If slash command: reply when no flagged, or when all flagged were already in DB
         if response_url and flagged_count == 0:
             blocks = slack_alerts.format_alert_blocks(0, "all", all_results, threshold_pct, run_type)
@@ -498,6 +554,9 @@ def health():
     if TRADE_ENABLED:
         import trade_db
         trade_info = {"open_positions": trade_db.get_open_position_count()}
+    with _heartbeat_lock:
+        hb_scan_count = _scan_counter
+        hb_last_alert = _last_new_alert_time.isoformat() if _last_new_alert_time else None
     with _run_lock:
         return jsonify({
             "status": "running",
@@ -511,6 +570,9 @@ def health():
             "last_run": _last_run,
             "interval_min": SCAN_INTERVAL_MINUTES,
             "threshold_pct": ALERT_THRESHOLD_PCT,
+            "heartbeat_interval_hours": HEARTBEAT_INTERVAL_HOURS,
+            "scan_count": hb_scan_count,
+            "last_new_alert_time": hb_last_alert,
         })
 
 
@@ -687,6 +749,7 @@ def main():
     except Exception as e:
         logger.warning(f"Predict.fun event verification failed: {e}")
     logger.info(f"  Webhook:       {'configured' if slack_alerts.SLACK_WEBHOOK_URL else 'NOT SET'}")
+    logger.info(f"  Heartbeat:     every {HEARTBEAT_INTERVAL_HOURS}h" if HEARTBEAT_INTERVAL_HOURS > 0 else "  Heartbeat:     disabled")
     logger.info(f"  Trading:       {'ENABLED' if TRADE_ENABLED else 'disabled'}")
     logger.info("=" * 60)
 

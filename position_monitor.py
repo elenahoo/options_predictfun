@@ -100,6 +100,16 @@ def _check_single_position(pos: dict, client) -> None:
         slack_alerts.send_position_expired_alert(pos, "Shares sold externally")
         return
 
+    expiry = _parse_utc_timestamp(pos.get("expiry_iso"))
+    if expiry and datetime.now(timezone.utc) >= expiry:
+        logger.info(
+            f"Position {pos_id}: market expiry {expiry.isoformat()} has passed — "
+            f"marking as expired"
+        )
+        trade_db.update_position_expired(pos_id, "Market expiry has passed")
+        slack_alerts.send_position_expired_alert(pos, "Market expiry has passed")
+        return
+
     # --- Case 1: sell order not yet placed (pending or cancelled) ---
     if sell_order_status in ("pending", "cancelled") or not sell_order_id:
         retries = _sell_retry_counts.get(pos_id, 0)
@@ -323,10 +333,19 @@ def _check_stale(pos: dict) -> None:
 
 
 def _parse_utc_timestamp(value: Optional[str]) -> Optional[datetime]:
-    """Parse SQLite UTC timestamps stored as YYYY-MM-DD HH:MM:SS."""
+    """Parse UTC timestamps stored as SQLite or ISO-8601 strings."""
     if not value:
         return None
+    raw = str(value).strip()
     try:
-        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(raw)
     except ValueError:
-        return None
+        try:
+            parsed = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

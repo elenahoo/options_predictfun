@@ -444,6 +444,54 @@ def send_position_expired_alert(
     return _post_json(url, payload)
 
 
+def send_heartbeat(
+    scan_count: int,
+    comparisons: int,
+    flagged: int,
+    new_alerts: int,
+    db_url_count: int,
+    last_new_alert_ago: Optional[str],
+    scheduler_running: bool,
+    interval_min: int,
+    threshold_pct: float,
+    currencies: List[str],
+    webhook_url: Optional[str] = None,
+) -> bool:
+    """Post a periodic heartbeat to confirm the scanner is alive."""
+    url = webhook_url or SLACK_WEBHOOK_URL
+    if not url:
+        return False
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    status_icon = "🟢" if scheduler_running else "🔴"
+    status_text = "running" if scheduler_running else "stopped"
+    last_alert_line = f"*Last new alert:* {last_new_alert_ago}" if last_new_alert_ago else "*Last new alert:* (none yet)"
+    payload = {
+        "blocks": [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": f"💓 Heartbeat — Scan #{scan_count}", "emoji": True},
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*Comparisons:* {comparisons}  |  *Flagged:* {flagged}  |  *New alerts this run:* {new_alerts}\n"
+                        f"*Dedup DB:* {db_url_count} URLs  |  {last_alert_line}\n"
+                        f"{status_icon} *Scheduler:* {status_text}  |  *Interval:* {interval_min}m  |  "
+                        f"*Threshold:* {threshold_pct:.0f}%  |  *Currencies:* {', '.join(currencies)}"
+                    ),
+                },
+            },
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": now_str}],
+            },
+        ],
+    }
+    return _post_json(url, payload)
+
+
 def send_position_stale_alert(
     pos: Dict,
     hours_open: float,
