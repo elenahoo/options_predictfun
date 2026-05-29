@@ -36,7 +36,7 @@ import os
 import time
 import traceback
 from dataclasses import asdict, is_dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -620,6 +620,43 @@ class PredictfunClient:
                 return float(pos.get("balance") or pos.get("shares") or 0)
         return 0.0
 
+    def get_token_balance_on_chain(
+        self,
+        token_id: str,
+        *,
+        is_neg_risk: bool = False,
+        is_yield_bearing: bool = False,
+    ) -> Optional[float]:
+        """Return outcome-token shares held by ``maker_address`` by calling
+        ``ConditionalTokens.balanceOf`` directly on-chain.
+
+        This is the authoritative source of truth for fill confirmation — the
+        REST ``/v1/account`` endpoint can return without a ``positions`` field
+        for some accounts, leaving the caller unable to distinguish "zero
+        balance" from "API didn't tell us."
+        """
+        builder = self._sdk_builder()
+        contracts = getattr(builder, "contracts", None)
+        if contracts is None:
+            return None
+        if is_yield_bearing:
+            ct = (
+                contracts.yield_bearing_neg_risk_conditional_tokens
+                if is_neg_risk
+                else contracts.yield_bearing_conditional_tokens
+            )
+        else:
+            ct = (
+                contracts.neg_risk_conditional_tokens
+                if is_neg_risk
+                else contracts.conditional_tokens
+            )
+
+        tid_str = str(token_id).strip()
+        tid_int = int(tid_str, 16) if tid_str.lower().startswith("0x") else int(tid_str)
+        raw = ct.functions.balanceOf(self.maker_address, tid_int).call()
+        return _from_wei(int(raw))
+
     def get_positions(self) -> list:
         """Return current token positions from ``GET /v1/account``."""
         account = self._fetch_account()
@@ -701,15 +738,15 @@ def _is_filled(response: Dict[str, Any]) -> bool:
 
 
 def _wait_for_token_balance_increase(
-    client: PredictfunClient,
-    token_id: str,
+    balance_reader: Callable[[], Optional[float]],
     *,
     baseline_balance: Optional[float],
     shares: float,
     timeout_seconds: float = PREDICTFUN_BUY_CONFIRM_TIMEOUT_SECONDS,
     poll_seconds: float = PREDICTFUN_BUY_CONFIRM_POLL_SECONDS,
+    token_id_for_logging: Optional[str] = None,
 ) -> tuple[bool, Optional[float]]:
-    """Poll account positions until a just-bought token balance is visible."""
+    """Poll *balance_reader* until the post-buy balance reflects the new shares."""
     if timeout_seconds <= 0:
         timeout_seconds = 0
     if poll_seconds <= 0:
@@ -723,9 +760,12 @@ def _wait_for_token_balance_increase(
     last_balance: Optional[float] = None
     while True:
         try:
-            balance = client.get_token_balance(token_id)
+            balance = balance_reader()
         except Exception as e:
-            logger.warning("Unable to verify post-buy token balance for %s: %s", token_id, e)
+            logger.warning(
+                "Unable to verify post-buy token balance for %s: %s",
+                token_id_for_logging, e,
+            )
             balance = None
 
         if balance is not None:
@@ -854,8 +894,18 @@ def _execute_single_trade(result: Dict) -> None:
             "Collateral OK: balance=$%.2f, need=$%.2f",
             precheck["balance"], precheck["required"],
         )
+        is_neg_risk = bool(clob_data.get("is_neg_risk"))
+        is_yield_bearing = bool(clob_data.get("is_yield_bearing"))
+
+        def _read_balance() -> Optional[float]:
+            return client.get_token_balance_on_chain(
+                str(token_id),
+                is_neg_risk=is_neg_risk,
+                is_yield_bearing=is_yield_bearing,
+            )
+
         try:
-            pre_buy_token_balance = client.get_token_balance(str(token_id))
+            pre_buy_token_balance = _read_balance()
         except Exception as e:
             logger.warning("Could not read pre-buy token balance for %s: %s", token_id, e)
             pre_buy_token_balance = None
@@ -865,8 +915,8 @@ def _execute_single_trade(result: Dict) -> None:
             price=buy_price,
             shares=shares,
             fee_rate_bps=fee_rate_bps,
-            is_neg_risk=bool(clob_data.get("is_neg_risk")),
-            is_yield_bearing=bool(clob_data.get("is_yield_bearing")),
+            is_neg_risk=is_neg_risk,
+            is_yield_bearing=is_yield_bearing,
         )
     except Exception as e:
         slack_alerts.send_trade_error_alert(f"BUY {side.upper()} market", str(e), result)
@@ -874,10 +924,10 @@ def _execute_single_trade(result: Dict) -> None:
 
     response_explicitly_filled = _is_filled(buy_response)
     balance_confirmed, post_buy_token_balance = _wait_for_token_balance_increase(
-        client,
-        str(token_id),
+        _read_balance,
         baseline_balance=pre_buy_token_balance,
         shares=shares,
+        token_id_for_logging=str(token_id),
     )
     if not balance_confirmed:
         buy_order_id = _extract_order_id(buy_response) or "unknown"
