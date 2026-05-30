@@ -31,7 +31,7 @@ class TradeExecutorConfirmationTests(unittest.TestCase):
         confirmed, balance = trade_executor._wait_for_token_balance_increase(
             reader,
             baseline_balance=10.0,
-            shares=10,
+            min_increase=10,
             timeout_seconds=0.1,
             poll_seconds=0.01,
         )
@@ -46,13 +46,47 @@ class TradeExecutorConfirmationTests(unittest.TestCase):
         confirmed, balance = trade_executor._wait_for_token_balance_increase(
             reader,
             baseline_balance=0.0,
-            shares=10,
+            min_increase=10,
             timeout_seconds=0.01,
             poll_seconds=0.01,
         )
 
         self.assertFalse(confirmed)
         self.assertEqual(balance, 0.0)
+
+    def test_balance_confirmation_accepts_fee_haircut_fill(self):
+        # Real-world case: requested 10 shares, on-chain balance grew by 9.827
+        # because the protocol deducted the taker fee in the output token.
+        client = FakeClient([9.82705882])
+        reader = lambda: client.get_token_balance("token-no")
+
+        confirmed, balance = trade_executor._wait_for_token_balance_increase(
+            reader,
+            baseline_balance=0.0,
+            min_increase=10 * trade_executor.PREDICTFUN_BUY_CONFIRM_MIN_FILL_RATIO,
+            timeout_seconds=0.1,
+            poll_seconds=0.01,
+        )
+
+        self.assertTrue(confirmed)
+        self.assertEqual(balance, 9.82705882)
+
+    def test_balance_confirmation_rejects_fill_below_haircut(self):
+        # A fill far below the haircut floor (e.g. only 50% delivered) should
+        # still be rejected so we don't silently record a bad position.
+        client = FakeClient([5.0, 5.0])
+        reader = lambda: client.get_token_balance("token-no")
+
+        confirmed, balance = trade_executor._wait_for_token_balance_increase(
+            reader,
+            baseline_balance=0.0,
+            min_increase=10 * trade_executor.PREDICTFUN_BUY_CONFIRM_MIN_FILL_RATIO,
+            timeout_seconds=0.01,
+            poll_seconds=0.01,
+        )
+
+        self.assertFalse(confirmed)
+        self.assertEqual(balance, 5.0)
 
     def test_token_balance_empty_positions_means_zero_shares(self):
         client = object.__new__(trade_executor.PredictfunClient)

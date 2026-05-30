@@ -136,7 +136,7 @@ def insert_position(
     tick_size: float,
     buy_price: float,
     buy_fee: float,
-    shares: int,
+    shares: float,
     target_sell_price: float,
     model_prob: float,
     buy_order_id: str,

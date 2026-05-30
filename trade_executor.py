@@ -65,6 +65,13 @@ PREDICTFUN_BUY_CONFIRM_TIMEOUT_SECONDS = float(
 PREDICTFUN_BUY_CONFIRM_POLL_SECONDS = float(
     os.environ.get("PREDICTFUN_BUY_CONFIRM_POLL_SECONDS", "2")
 )
+# Market BUYs settle with fewer tokens than requested because the protocol
+# deducts the taker fee in the output token and a MARKET fill may sweep asks
+# at worse-than-quoted prices within the slippage budget. Accept the fill as
+# long as the on-chain balance grew by at least this fraction of the request.
+PREDICTFUN_BUY_CONFIRM_MIN_FILL_RATIO = float(
+    os.environ.get("PREDICTFUN_BUY_CONFIRM_MIN_FILL_RATIO", "0.97")
+)
 
 TRADE_SIZE = int(os.environ.get("TRADE_SIZE", "10"))
 TRADE_SIZE_BY_CURRENCY = {
@@ -741,18 +748,18 @@ def _wait_for_token_balance_increase(
     balance_reader: Callable[[], Optional[float]],
     *,
     baseline_balance: Optional[float],
-    shares: float,
+    min_increase: float,
     timeout_seconds: float = PREDICTFUN_BUY_CONFIRM_TIMEOUT_SECONDS,
     poll_seconds: float = PREDICTFUN_BUY_CONFIRM_POLL_SECONDS,
     token_id_for_logging: Optional[str] = None,
 ) -> tuple[bool, Optional[float]]:
-    """Poll *balance_reader* until the post-buy balance reflects the new shares."""
+    """Poll *balance_reader* until the post-buy balance has grown by at least *min_increase*."""
     if timeout_seconds <= 0:
         timeout_seconds = 0
     if poll_seconds <= 0:
         poll_seconds = 1
 
-    required_balance = float(shares)
+    required_balance = float(min_increase)
     if baseline_balance is not None:
         required_balance += float(baseline_balance)
 
@@ -923,10 +930,11 @@ def _execute_single_trade(result: Dict) -> None:
         return
 
     response_explicitly_filled = _is_filled(buy_response)
+    min_acceptable_shares = float(shares) * PREDICTFUN_BUY_CONFIRM_MIN_FILL_RATIO
     balance_confirmed, post_buy_token_balance = _wait_for_token_balance_increase(
         _read_balance,
         baseline_balance=pre_buy_token_balance,
-        shares=shares,
+        min_increase=min_acceptable_shares,
         token_id_for_logging=str(token_id),
     )
     if not balance_confirmed:
@@ -940,11 +948,24 @@ def _execute_single_trade(result: Dict) -> None:
             f"Order id: {buy_order_id}\n"
             f"Response explicitly filled: {response_explicitly_filled}\n"
             f"Pre-buy balance: {baseline_msg}; observed balance: {observed_msg}; "
-            f"expected increase: {shares}\n"
+            f"minimum acceptable increase: {min_acceptable_shares:.4f} (requested {shares})\n"
             f"Response: {str(buy_response)[:400]}",
             result,
         )
         return
+
+    if pre_buy_token_balance is not None and post_buy_token_balance is not None:
+        actual_shares = max(0.0, float(post_buy_token_balance) - float(pre_buy_token_balance))
+    else:
+        actual_shares = float(shares)
+    if actual_shares <= 0:
+        actual_shares = float(shares)
+    if abs(actual_shares - shares) > 1e-9:
+        logger.info(
+            "Buy filled %.6f shares (requested %s); recording actual fill size",
+            actual_shares, shares,
+        )
+        buy_fee = compute_fee(actual_shares, buy_price, fee_rate)
 
     buy_order_id = _extract_order_id(buy_response) or ""
     expiry_iso = result.get("expiry_ts") or result.get("expiry")
@@ -957,7 +978,7 @@ def _execute_single_trade(result: Dict) -> None:
         tick_size=tick_size,
         buy_price=buy_price,
         buy_fee=buy_fee,
-        shares=shares,
+        shares=actual_shares,
         target_sell_price=target_sell_price,
         model_prob=model_prob,
         buy_order_id=buy_order_id,
@@ -972,7 +993,7 @@ def _execute_single_trade(result: Dict) -> None:
         sell_order_id = place_gtc_sell(
             token_id=str(token_id),
             price=target_sell_price,
-            shares=shares,
+            shares=actual_shares,
             neg_risk=bool(clob_data.get("is_neg_risk")),
             tick_size=tick_size,
             market_id=int(market_id),
@@ -992,7 +1013,7 @@ def _execute_single_trade(result: Dict) -> None:
 
     slack_alerts.send_trade_executed_alert(
         side=side,
-        shares=shares,
+        shares=actual_shares,
         buy_price=buy_price,
         buy_fee=buy_fee,
         target_sell_price=target_sell_price,
