@@ -21,7 +21,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 POSITION_CHECK_INTERVAL = int(os.environ.get("POSITION_CHECK_INTERVAL_SECONDS", "30"))
-STALE_POSITION_HOURS = 24
+STALE_POSITION_HOURS = float(os.environ.get("STALE_POSITION_HOURS", "24"))
 MAX_SELL_RETRIES = 5
 
 # Track consecutive sell-placement failures per position (in-memory)
@@ -92,6 +92,17 @@ def _check_single_position(pos: dict, client) -> None:
         balance = None
 
     if balance is not None and balance <= 0:
+        # A zero balance is also exactly what we observe right after OUR resting
+        # GTC sell fills. Before concluding the shares were sold externally,
+        # confirm whether our own sell order was the cause so we emit the
+        # correct "Sell Filled" alert (with P&L) instead of "sold externally".
+        if sell_order_id and _sell_order_was_filled(client, sell_order_id, shares):
+            logger.info(
+                f"Position {pos_id}: balance=0 and sell order {sell_order_id} "
+                f"matched — recording fill"
+            )
+            _handle_filled(pos)
+            return
         logger.info(
             f"Position {pos_id}: no shares held (balance={balance}), "
             f"position was closed externally — marking as expired"
@@ -269,6 +280,37 @@ def _check_single_position(pos: dict, client) -> None:
     _check_stale(pos)
 
 
+def _sell_order_was_filled(client, sell_order_id: str, shares: float) -> bool:
+    """Return True if our resting GTC sell order has been (fully) matched.
+
+    A filled order is usually removed from the book, so a "not found" / None
+    response is treated as a fill. Otherwise compare size_matched against the
+    original size, or trust an explicit "matched" status. On any unexpected
+    error we return False so a genuine external sale is still caught.
+    """
+    try:
+        order_info = client.get_order(sell_order_id)
+    except Exception as e:
+        if "not found" in str(e).lower() or "404" in str(e):
+            return True
+        logger.warning(f"Could not confirm sell order {sell_order_id} status: {e}")
+        return False
+
+    if order_info is None:
+        return True
+
+    if isinstance(order_info, dict):
+        status = order_info.get("status", "")
+        size_matched = float(order_info.get("size_matched", "0") or "0")
+        original_size = float(order_info.get("original_size", str(shares)) or str(shares))
+    else:
+        status = getattr(order_info, "status", "")
+        size_matched = float(getattr(order_info, "size_matched", 0) or 0)
+        original_size = float(getattr(order_info, "original_size", shares) or shares)
+
+    return status == "matched" or (size_matched > 0 and size_matched >= original_size)
+
+
 def _handle_filled(pos: dict) -> None:
     """Process a fully filled sell order."""
     import trade_db
@@ -312,12 +354,8 @@ def _check_stale(pos: dict) -> None:
     import slack_alerts
 
     pos_id = pos.get("id")
-    created_str = pos.get("created_at", "")
-    if not created_str:
-        return
-    try:
-        created = datetime.strptime(created_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    except ValueError:
+    created = _parse_utc_timestamp(pos.get("created_at"))
+    if not created:
         return
 
     now = datetime.now(timezone.utc)

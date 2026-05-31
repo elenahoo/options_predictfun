@@ -988,6 +988,17 @@ def _execute_single_trade(result: Dict) -> None:
         expiry_iso=expiry_iso,
     )
 
+    pos_for_alert = {
+        "side": side,
+        "shares": actual_shares,
+        "buy_price": buy_price,
+        "target_sell_price": target_sell_price,
+        "currency": result.get("currency"),
+        "strike": strike if isinstance(strike, (int, float)) else None,
+        "question_type": question_type,
+        "expiry_iso": expiry_iso,
+    }
+
     sell_order_id: Optional[str] = None
     try:
         sell_order_id = place_gtc_sell(
@@ -1003,6 +1014,8 @@ def _execute_single_trade(result: Dict) -> None:
         )
         if sell_order_id and pos_id is not None:
             trade_db.update_sell_order_placed(pos_id, sell_order_id)
+        if sell_order_id:
+            slack_alerts.send_sell_order_placed_alert(pos_for_alert, sell_order_id)
     except Exception as e:
         logger.error("Limit sell placement failed (will retry in monitor): %s", e)
         slack_alerts.send_trade_error_alert(
