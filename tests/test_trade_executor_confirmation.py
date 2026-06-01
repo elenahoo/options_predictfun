@@ -149,6 +149,35 @@ class TradeExecutorConfirmationTests(unittest.TestCase):
         self.assertEqual(balance, 7.0)
         self.assertEqual(funcs.calls, [(account_addr, int(tid_str))])
 
+    def test_no_side_market_book_uses_complemented_yes_book(self):
+        client = object.__new__(trade_executor.PredictfunClient)
+        orderbook = {
+            "marketId": 123,
+            "updateTimestampMs": 456,
+            "asks": [[0.52, 3.0], [0.55, 4.0]],
+            "bids": [[0.49, 5.0], [0.48, 6.0]],
+        }
+
+        book = client._book_from_orderbook(orderbook, outcome_side="no")
+
+        self.assertEqual(book.market_id, 123)
+        self.assertEqual(book.asks, [(0.51, 5.0), (0.52, 6.0)])
+        self.assertEqual(book.bids, [(0.48, 3.0), (0.45, 4.0)])
+
+    def test_yes_side_market_book_uses_raw_yes_book(self):
+        client = object.__new__(trade_executor.PredictfunClient)
+        orderbook = {
+            "marketId": 123,
+            "updateTimestampMs": 456,
+            "asks": [[0.52, 3.0], [0.55, 4.0]],
+            "bids": [[0.49, 5.0], [0.48, 6.0]],
+        }
+
+        book = client._book_from_orderbook(orderbook, outcome_side="yes")
+
+        self.assertEqual(book.asks, [(0.52, 3.0), (0.55, 4.0)])
+        self.assertEqual(book.bids, [(0.49, 5.0), (0.48, 6.0)])
+
 
 if __name__ == "__main__":
     unittest.main()

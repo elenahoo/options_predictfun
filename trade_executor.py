@@ -368,23 +368,34 @@ class PredictfunClient:
         self._builder = OrderBuilder.make(self._chain_enum(), self.private_key, options)
         return self._builder
 
-    def _book_from_orderbook(self, orderbook: Dict):
+    def _book_from_orderbook(self, orderbook: Dict, outcome_side: str = "yes"):
         from predict_sdk import Book
 
-        def levels(raw_levels):
+        def levels(raw_levels, *, complement: bool = False, reverse: bool = False):
             out = []
             for level in raw_levels or []:
                 price = _level_price(level)
                 size = _level_size(level)
+                if complement:
+                    price = 1.0 - price
                 if price > 0 and size > 0:
-                    out.append((price, size))
+                    out.append((round(price, 12), size))
+            out.sort(key=lambda item: item[0], reverse=reverse)
             return out
+
+        side_lc = (outcome_side or "yes").lower()
+        if side_lc == "no":
+            asks = levels(orderbook.get("bids"), complement=True)
+            bids = levels(orderbook.get("asks"), complement=True, reverse=True)
+        else:
+            asks = levels(orderbook.get("asks"))
+            bids = levels(orderbook.get("bids"), reverse=True)
 
         return Book(
             market_id=int(orderbook.get("marketId") or 0),
             update_timestamp_ms=int(orderbook.get("updateTimestampMs") or 0),
-            asks=levels(orderbook.get("asks")),
-            bids=levels(orderbook.get("bids")),
+            asks=asks,
+            bids=bids,
         )
 
     def _signed_order_dict(self, signed_order, order_hash: str) -> Dict[str, Any]:
@@ -429,6 +440,7 @@ class PredictfunClient:
         fee_rate_bps: int,
         is_neg_risk: bool,
         is_yield_bearing: bool,
+        outcome_side: str = "yes",
         orderbook: Optional[Dict] = None,
         slippage_bps: int = PREDICTFUN_SLIPPAGE_BPS,
     ) -> Dict[str, Any]:
@@ -442,7 +454,7 @@ class PredictfunClient:
         if strategy == "MARKET":
             if orderbook is None:
                 raise RuntimeError("Predict.fun market orders require an orderbook")
-            book = self._book_from_orderbook(orderbook)
+            book = self._book_from_orderbook(orderbook, outcome_side=outcome_side)
             amounts = builder.get_market_order_amounts(
                 MarketHelperInput(
                     side=side,
@@ -521,6 +533,7 @@ class PredictfunClient:
         fee_rate_bps: int,
         is_neg_risk: bool,
         is_yield_bearing: bool,
+        outcome_side: str = "yes",
     ) -> Dict[str, Any]:
         from fetch_predictfun_prob import fetch_orderbook
 
@@ -536,6 +549,7 @@ class PredictfunClient:
             fee_rate_bps=fee_rate_bps,
             is_neg_risk=is_neg_risk,
             is_yield_bearing=is_yield_bearing,
+            outcome_side=outcome_side,
             orderbook=orderbook,
         )
         return self._submit_order(
@@ -924,6 +938,7 @@ def _execute_single_trade(result: Dict) -> None:
             fee_rate_bps=fee_rate_bps,
             is_neg_risk=is_neg_risk,
             is_yield_bearing=is_yield_bearing,
+            outcome_side=side,
         )
     except Exception as e:
         slack_alerts.send_trade_error_alert(f"BUY {side.upper()} market", str(e), result)
